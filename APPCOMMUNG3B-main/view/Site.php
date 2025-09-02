@@ -1,1083 +1,442 @@
-<?php
-require_once '../model/DATABASE.php';
-
-$db = new Database();
-
-$measurements = $db->getLatestMeasurements();
-$actuators = $db->getActuatorsStatus();
-/*$limits = $db->getSensorsLimits();*/
-$historicalData = $db->getHistoricalData(20);
-$actuatorHistory = $db->getActuatorHistory(50);
-$sensorHistory = $db->getSensorHistory(50);
-
-$sensorValues = [];
-foreach ($measurements as $measure) {
-    $sensorValues[$measure['nom']] = $measure;
-}
-
-/*$sensorLimits = [];
-foreach ($limits as $limit) {
-    $sensorLimits[$limit['nom']] = $limit;
-}*/
-
-$actuatorStatus = [];
-foreach ($actuators as $actuator) {
-    $actuatorStatus[$actuator['nom']] = $actuator;
-}
-
-$chartData = $db->getHistoricalData(50);
-$chartValues = [
-    'temperature' => [],
-    'humidite' => [],
-    'luminosite' => [],
-    'humidite_sol' => [],
-    'co2' => []
-];
-
-foreach ($chartData as $data) {
-    if (isset($chartValues[$data['nom']])) {
-        $chartValues[$data['nom']][] = [
-            'x' => $data['date_heure'],
-            'y' => $data['valeur']
-        ];
-    }
-}
-?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🌱 SerreConnect - Gestion Intelligente de Serre</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        :root {
-            --primary: #494ba8;
-            --secondary: #454e94;
-            --danger: #e74c3c;
-            --warning: #f39c12;
-            --info: #3498db;
-            --light: #ecf0f1;
-            --dark: #34495e;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        body {
-            background-color: #f5f7fa;
-            color: #333;
-        }
-
-        .container {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        nav {
-            width: 250px;
-            background-color: var(--secondary);
-            color: white;
-            padding: 20px 0;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .logo {
-            font-size: 1.5rem;
-            font-weight: bold;
-            padding: 0 20px 20px;
-            display: flex;
-            align-items: center;
-        }
-
-        .logo i {
-            margin-right: 10px;
-            color: var(--primary);
-        }
-
-        .nav-links {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .nav-links a {
-            color: white;
-            text-decoration: none;
-            padding: 12px 20px;
-            display: flex;
-            align-items: center;
-            transition: all 0.3s;
-        }
-
-        .nav-links a:hover, .nav-links a.active {
-            background-color: rgba(255,255,255,0.1);
-            border-left: 4px solid var(--primary);
-        }
-
-        .nav-links a i {
-            margin-right: 10px;
-            width: 20px;
-            text-align: center;
-        }
-
-        main {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        .card {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .section-title {
-            font-size: 1.2rem;
-            margin-bottom: 20px;
-            color: var(--secondary);
-            display: flex;
-            align-items: center;
-        }
-
-        .section-title i {
-            margin-right: 10px;
-            color: var(--primary);
-        }
-
-        .sensors-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .sensor-card {
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 15px;
-            transition: transform 0.3s;
-        }
-
-        .sensor-card:hover {
-            transform: translateY(-5px);
-        }
-
-        .sensor-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .sensor-info {
-            display: flex;
-            align-items: center;
-        }
-
-        .sensor-icon {
-            width: 40px;
-            height: 40px;
-            background-color: rgba(39, 174, 96, 0.1);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 10px;
-            color: var(--primary);
-        }
-
-        .sensor-title {
-            font-weight: 600;
-        }
-
-        .sensor-status {
-            font-size: 0.8rem;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-weight: 500;
-        }
-
-        .status-optimal {
-            background-color: rgba(39, 174, 96, 0.1);
-            color: var(--primary);
-        }
-
-        .status-warning {
-            background-color: rgba(243, 156, 18, 0.1);
-            color: var(--warning);
-        }
-
-        .status-critical {
-            background-color: rgba(231, 76, 60, 0.1);
-            color: var(--danger);
-        }
-
-        .sensor-value {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 5px;
-        }
-
-        .sensor-details small {
-            color: #7f8c8d;
-            font-size: 0.8rem;
-        }
-
-        .actuator-controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-        }
-
-        .actuator-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-
-        .actuator-info {
-            display: flex;
-            align-items: center;
-        }
-
-        .actuator-icon {
-            width: 40px;
-            height: 40px;
-            background-color: rgba(52, 152, 219, 0.1);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 10px;
-            color: var(--info);
-        }
-
-        .actuator-title {
-            font-weight: 600;
-        }
-
-        .actuator-info small {
-            color: #7f8c8d;
-            font-size: 0.8rem;
-        }
-
-        .toggle-switch {
-            width: 50px;
-            height: 26px;
-            background-color: #ddd;
-            border-radius: 13px;
-            position: relative;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-
-        .toggle-switch::after {
-            content: '';
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background-color: white;
-            top: 3px;
-            left: 3px;
-            transition: transform 0.3s;
-        }
-
-        .toggle-switch.active {
-            background-color: var(--primary);
-        }
-
-        .toggle-switch.active::after {
-            transform: translateX(24px);
-        }
-
-        .chart-container {
-            height: 400px;
-            width: 100%;
-            margin-top: 20px;
-        }
-
-        .data-table-container {
-            overflow-x: auto;
-        }
-
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-
-        .data-table th, .data-table td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
-
-        .data-table th {
-            background-color: var(--secondary);
-            color: white;
-            font-weight: 500;
-        }
-
-        .data-table tr:hover {
-            background-color: #f5f5f5;
-        }
-
-        .alert {
-            display: flex;
-            align-items: center;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            background-color: #f8f9fa;
-        }
-
-        .alert i {
-            font-size: 1.5rem;
-            margin-right: 15px;
-        }
-
-        .alert-warning {
-            background-color: rgba(243, 156, 18, 0.1);
-            border-left: 4px solid var(--warning);
-        }
-
-        .alert-warning i {
-            color: var(--warning);
-        }
-
-        .alert-danger {
-            background-color: rgba(231, 76, 60, 0.1);
-            border-left: 4px solid var(--danger);
-        }
-
-        .alert-danger i {
-            color: var(--danger);
-        }
-
-        .alert-success {
-            background-color: rgba(39, 174, 96, 0.1);
-            border-left: 4px solid var(--primary);
-        }
-
-        .alert-success i {
-            color: var(--primary);
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                flex-direction: column;
-            }
-
-            nav {
-                width: 100%;
-                padding: 10px 0;
-            }
-
-            .nav-links {
-                flex-direction: row;
-                overflow-x: auto;
-            }
-
-            .nav-links a {
-                padding: 10px 15px;
-                white-space: nowrap;
-                border-left: none;
-                border-bottom: 3px solid transparent;
-            }
-
-            .nav-links a:hover, .nav-links a.active {
-                border-left: none;
-                border-bottom: 3px solid var(--primary);
-            }
-
-            .sensors-grid, .actuator-controls {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Dashboard Capteur Professionnel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Montserrat:700,400&display=swap">
+  <style>
+    :root {
+      --main-bg: linear-gradient(135deg, #f9fafc 0%, #eaf3fc 100%);
+      --dashboard-bg: #fff;
+      --curve: #1ea7e1;
+      --fill: rgba(30,167,225,0.16);
+      --success: #19a953;
+      --alert: #e23e2d;
+      --warn: #ffcd38;
+      --table-header: #e2f2fc;
+      --stat-bg: #f0f6fe;
+    }
+    html, body {height:100%;width:100%;margin:0;padding:0;}
+    body {
+      background: var(--main-bg);
+      font-family: 'Montserrat', Arial, sans-serif;
+      color: #223;
+      min-height: 100vh;
+      min-width: 100vw;
+    }
+    .dashboard {
+      background: var(--dashboard-bg);
+      width: 100vw;
+      min-height: 100vh;
+      margin: 0; padding: 0;
+      display: flex; flex-direction: column; align-items: center;
+      box-sizing: border-box; overflow-x: hidden;
+      box-shadow: 0 8px 28px #eaeff7;
+    }
+    header {
+      width: 100vw; display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 40px 0 36px;
+      box-sizing: border-box;
+      border-bottom: 1px solid #e0e9f0;
+      background: transparent;
+    }
+    .logo-titre {
+      display: flex; align-items: center; font-size: 1.29em; font-weight: 700;
+    }
+    .logo-cust {width:42px;height:42px;margin-right:13px;}
+    h1 {color: #007acc; font-size:2.18em; margin:34px 0 10px 0;}
+    .etat-bar {display:flex;align-items:center;margin-top:9px;margin-bottom:6px;}
+    .status-ind {width:19px;height:19px;border-radius:50%;border:2px solid #fff;margin-right:8px;box-shadow:0 1px 7px #8883;}
+    .status-ind.ok {background:#22e244;}
+    .status-ind.nok {background:#f05353;}
+    .etat-bar span {font-weight:500;}
+    .valeur {
+      font-size:3.4em;display:inline-block;background:#e5f6ff;color:#19a953;
+      border-radius:15px;padding:13px 30px;margin-bottom:14px;font-family:inherit;
+      box-shadow:0 2px 8px #1eb46e18;transition:.18s;
+    }
+    .valeur.alert {color:#e23e2d;background:#fff4f1;}
+    .valeur.warn {color:#ffcd38;background:#fffbe6;}
+    .btns-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 17px;
+      align-items: center;
+      margin-bottom:20px;margin-top:2px;
+    }
+    .btns-main {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .btns-options {
+      display: flex;
+      gap: 13px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    button, select {
+      font-size:1.08em;border:none;border-radius:8px;padding:8px 16px;
+      cursor:pointer;background:#1ea7e1;color:#fff;
+      box-shadow:0 2px 7px #007acc1c;transition: background .13s;
+      font-family:inherit;
+    }
+    button:hover, select:hover { background: #007acc;}
+    button[aria-pressed="true"] {background:#ededed;color:#333;}
+    .btn-compact, .btn-help {background: #e7eaea; color: #217;}
+    .btn-help:hover {background: #ffe158; color: #111;}
+    #mesureSerie {
+      font-size:1.2em;
+      background:#f6fafd;
+      padding:18px 12px;
+      border-radius:10px;
+      margin:24px auto 20px auto;
+      max-width:520px;
+      box-shadow:0 2px 10px #c1e7ff23;
+    }
+    #resultatSerie {
+      white-space:pre-line;
+      word-break:break-word;
+      margin-top:11px;
+      color:#226;
+      border-left:3px solid #1ea7e1;
+      padding-left:9px;
+    }
+    #graphique {
+      background: #eaf3fc; border-radius:13px; box-shadow:0 3px 17px #9ec4f82a;
+      margin:6px auto 14px auto; width:98vw; max-width:1120px; height:265px;
+    }
+    .statistiques {background:#f0f6fe;color:#1160b2;font-size:1.10em;
+      border-radius:11px;box-shadow:0 1px 7px #c5dee629;padding:8px 17px;margin:2px 0 4px 0;}
+    .recap-table {
+      width:98vw;max-width:920px;border-collapse:collapse;font-size:1.07em;
+      box-shadow:0 2px 13px #9ccbf335;border-radius:10px;overflow:hidden; margin-bottom:15px;
+      background:#f8fbff;
+    }
+    .recap-table th,.recap-table td {padding:7px 8px;border-bottom:1px solid #e2ebfa;text-align:center;}
+    .recap-table th {background:#e2f2fc; color:#1ea7e1;}
+    .recap-table tr:last-child td {border-bottom:none;}
+    .recap-table tr.alert td {background:#fceeee;color:#e23e2d;}
+    .footer {margin:15px 0 6px 0;font-size:1.09em;color:#337bae;}
+    .notif {
+      display:none;position:fixed;top:18px;right:24px;background:#19a953;color:#fff;
+      font-size:1.13em;padding:11px 19px;border-radius:10px;box-shadow:0 4px 17px #1eb46e38;z-index:9999;
+      animation:fadeout 2.8s 1 both;}
+    @keyframes fadeout{0%{opacity:1;}90%{opacity:1;}100%{opacity:0;}}
+    .help-modal {display:none;position:fixed;z-index:10000;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.44);}
+    .help-modal .modal-content {background:#fefefe;color:#1a282f;
+      border-radius:13px;padding:22px 23px;position:absolute;top:54%;left:50%;
+      transform:translate(-50%,-50%);box-shadow:0 3px 36px #8df;}
+    .help-modal .modal-content h2 {margin-top:0;color:#1590d8;}
+    .help-modal .close-modal {float:right;color:#462;font-size:1.35em;cursor:pointer;}
+    .compact .statistiques,.compact .recap-table{display:none;}
+    .compact #graphique{height:390px;max-height:62vh;}
+    .compact .valeur{font-size:4.6em;}
+    .lang-bar {margin:0 8px;}
+    @media (max-width:700px) {
+      h1{font-size:1.04em;}.valeur{font-size:1.5em;}
+      header{padding:12px 9vw 0 10vw;flex-direction:column;align-items:flex-start;}
+      .logo-titre{margin-bottom:7px;}
+      .btns-main,.btns-options {flex-direction:column;align-items:center;}
+    }
+    body.dark {
+      background: linear-gradient(135deg, #262e44 0%, #1e2936 100%);
+      color: #edf3fa;
+    }
+    body.dark .dashboard{background: #232736e0;}
+    body.dark h1{color:#39c5e0;}
+    body.dark .valeur{background:#233848;color:#2ae890;}
+    body.dark .valeur.alert{background:#312425;color:#ef8b7a;}
+    body.dark .valeur.warn{background:#2c2e22;color:#ffe158;}
+    body.dark #graphique{background:#232b32;}
+    body.dark .statistiques{background:#232944;color:#39c5e0;}
+    body.dark .recap-table{background:#232b3b;color:#dff3fd;}
+    body.dark .recap-table th{background:#2f495a;}
+    body.dark .recap-table tr.alert td{background:#3d2324;color:#ef8b7a;}
+    body.dark .footer{color:#53b4ca;}
+    body.dark .help-modal .modal-content{background:#282f3c;color:#d8f3ff;}
+  </style>
 </head>
 <body>
-    <div class="container">
-        <nav>
-            <div class="logo">
-                E-classe
-            </div>
-            <div class="nav-links">
-                <a href="#" onclick="showSection('dashboard')" class="active">
-                    <i class="fas fa-tachometer-alt"></i> Tableau de Bord
-                </a>
-                <a href="#" onclick="showSection('sensors')">
-                    <i class="fas fa-thermometer-half"></i> Capteurs
-                </a>
-                <a href="#" onclick="showSection('actuators')">
-                    <i class="fas fa-cogs"></i> Actionneurs
-                </a>
-                <a href="#" onclick="showSection('data')">
-                    <i class="fas fa-chart-line"></i> Données
-                </a>
-                <a href="#" onclick="showSection('alerts')">
-                    <i class="fas fa-bell"></i> Alertes
-                </a>
-                <a href="index.php" >
-                    <i></i> Déconnexion
-                </a>
-            </div>
-        </nav>
+  <header>
+    <div class="logo-titre">
+      <img src="capteur.png" alt="Logo capteur" class="logo-cust">
+      <span id="titrePage">Dashboard Capteur</span>
+    </div>
+    <div class="lang-bar">
+      <label for="langSelect">Langue :</label>
+      <select id="langSelect" aria-label="Choix de la langue">
+        <option value="fr" selected>FR</option>
+        <option value="en">EN</option>
+        <option value="es">ES</option>
+      </select>
+    </div>
+  </header>
+  <div class="dashboard" id="mainBoard" role="main" aria-label="Tableau de bord capteur">
+    <div class="info-capteur" aria-label="Informations Capteur">
+      <b>Capteur :</b> DHT22 – Plage : 0–1023 – Précision : ±2 – Calibration : 06/2025
+    </div>
+    <div class="etat-bar">
+      <span id="statusInd" class="status-ind ok" aria-label="État capteur"></span>
+      <span id="etatLib">Capteur connecté</span>
+    </div>
+    <h1>📏 Valeur mesurée</h1>
+    <div class="valeur" id="valAffichée" aria-live="polite">—</div>
 
-        <main>
-            <!-- Dashboard Section -->
-            <section id="dashboard-section">
-                <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-thermometer-half"></i>
-                        État des Capteurs
-                    </h2>
-                    <div class="sensors-grid">
-                        <div class="sensor-card" id="temperature-card">
-                            <div class="sensor-header">
-                                <div class="sensor-info">
-                                    <div class="sensor-icon">
-                                        <i class="fas fa-thermometer-half"></i>
-                                    </div>
-                                    <div class="sensor-title">Température</div>
-                                </div>
-                                <div class="sensor-status" id="temp-status">
-                                    <i class="fas fa-check-circle"></i> Optimal
-                                </div>
-                            </div>
-                            <div class="sensor-value" id="temp-value">
-                                <?php echo $sensorValues['temperature']['valeur'] ?? 'N/A'; ?>°C
-                            </div>
-                            <div class="sensor-details">
-                                <small>
-                                    Plage optimale: 
-                                    <?php echo $sensorLimits['temperature']['lim_min'] ?? 'N/A'; ?>-
-                                    <?php echo $sensorLimits['temperature']['lim_max'] ?? 'N/A'; ?>°C
-                                </small>
-                            </div>
-                        </div>
-
-                        <div class="sensor-card" id="humidity-card">
-                            <div class="sensor-header">
-                                <div class="sensor-info">
-                                    <div class="sensor-icon">
-                                        <i class="fas fa-tint"></i>
-                                    </div>
-                                    <div class="sensor-title">Humidité</div>
-                                </div>
-                                <div class="sensor-status" id="humidity-status">
-                                    <i class="fas fa-check-circle"></i> Optimal
-                                </div>
-                            </div>
-                            <div class="sensor-value" id="humidity-value">
-                                <?php echo $sensorValues['humidite']['valeur'] ?? 'N/A'; ?>%
-                            </div>
-                            <div class="sensor-details">
-                                <small>
-                                    Plage optimale: 
-                                    <?php echo $sensorLimits['humidite']['lim_min'] ?? 'N/A'; ?>-
-                                    <?php echo $sensorLimits['humidite']['lim_max'] ?? 'N/A'; ?>%
-                                </small>
-                            </div>
-                        </div>
-
-                        <div class="sensor-card" id="light-card">
-                            <div class="sensor-header">
-                                <div class="sensor-info">
-                                    <div class="sensor-icon">
-                                        <i class="fas fa-sun"></i>
-                                    </div>
-                                    <div class="sensor-title">Luminosité</div>
-                                </div>
-                                <div class="sensor-status" id="light-status">
-                                    <i class="fas fa-check-circle"></i> Optimal
-                                </div>
-                            </div>
-                            <div class="sensor-value" id="light-value">
-                                <?php echo $sensorValues['luminosite']['valeur'] ?? 'N/A'; ?>%
-                            </div>
-                            <div class="sensor-details">
-                                <small>
-                                    Plage optimale: 
-                                    <?php echo $sensorLimits['luminosite']['lim_min'] ?? 'N/A'; ?>-
-                                    <?php echo $sensorLimits['luminosite']['lim_max'] ?? 'N/A'; ?>%
-                                </small>
-                            </div>
-                        </div>
-
-                        <div class="sensor-card" id="soil-card">
-                            <div class="sensor-header">
-                                <div class="sensor-info">
-                                    <div class="sensor-icon">
-                                        <i class="fas fa-leaf"></i>
-                                    </div>
-                                    <div class="sensor-title">Humidité Sol</div>
-                                </div>
-                                <div class="sensor-status" id="soil-status">
-                                    <i class="fas fa-check-circle"></i> Optimal
-                                </div>
-                            </div>
-                            <div class="sensor-value" id="soil-value">
-                                <?php echo $sensorValues['humidite_sol']['valeur'] ?? 'N/A'; ?>%
-                            </div>
-                            <div class="sensor-details">
-                                <small>
-                                    Plage optimale: 
-                                    <?php echo $sensorLimits['humidite_sol']['lim_min'] ?? 'N/A'; ?>-
-                                    <?php echo $sensorLimits['humidite_sol']['lim_max'] ?? 'N/A'; ?>%
-                                </small>
-                            </div>
-                        </div>
-                        <div class="sensor-card" id="co2-card">
-                            <div class="sensor-header">
-                                <div class="sensor-info">
-                                    <div class="sensor-icon" style="color: #9b59b6;">
-                                        <i class="fas fa-wind"></i>
-                                    </div>
-                                    <div class="sensor-title">CO₂</div>
-                                </div>
-                                <div class="sensor-status" id="co2-status">
-                                    <i class="fas fa-check-circle"></i> Optimal
-                                </div>
-                            </div>
-                            <div class="sensor-value" id="co2-value">
-                                <?= htmlspecialchars($sensorValues['co2']['valeur'] ?? 'N/A') ?> ppm
-                            </div>
-                            <div class="sensor-details">
-                                <small>
-                                    Plage optimale: 
-                                    <?= htmlspecialchars($sensorLimits['co2']['lim_min'] ?? 'N/A') ?>-
-                                    <?= htmlspecialchars($sensorLimits['co2']['lim_max'] ?? 'N/A') ?> ppm
-                                </small>
-                            </div>
-                        </div>
-                            </div>
-                        </div>
-
-                <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-cogs"></i>
-                        Contrôles Automatiques
-                    </h2>
-                    <div class="actuator-controls">
-                        <div class="actuator-item">
-                            <div class="actuator-info">
-                                <div class="actuator-icon">
-                                    <i class="fas fa-lightbulb"></i>
-                                </div>
-                                <div>
-                                    <div class="actuator-title">LED</div>
-                                    <small>Éclairage LED</small>
-                                </div>
-                            </div>
-                            <div class="toggle-switch <?php echo $actuatorStatus['led']['etat'] ? 'active' : ''; ?>" 
-                                 onclick="toggleActuator(this, 'led')"></div>
-                        </div>
-
-                        <div class="actuator-item">
-                            <div class="actuator-info">
-                                <div class="actuator-icon">
-                                    <i class="fas fa-fan"></i>
-                                </div>
-                                <div>
-                                    <div class="actuator-title">Moteur</div>
-                                    <small>Ventilation</small>
-                                </div>
-                            </div>
-                            <div class="toggle-switch <?php echo $actuatorStatus['moteur']['etat'] ? 'active' : ''; ?>" 
-                                 onclick="toggleActuator(this, 'moteur')"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-chart-line"></i>
-                        Évolution des Paramètres (24h)
-                    </h2>
-                    <div class="chart-container">
-                        <canvas id="sensorsChart"></canvas>
-                    </div>
-                </div>
-            </section>
-            <section id="sensors-section" class="hidden">
-                <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-history"></i>
-                        Historique des Capteurs
-                    </h2>
-                    <div class="history-container">
-                        <table class="history-table">
-                            <thead>
-                                <tr>
-                                    <th class="sortable-header" onclick="sortTable(this, 0)">Date/Heure <i class="fas fa-sort"></i></th>
-                                    <th class="sortable-header" onclick="sortTable(this, 1)">Capteur <i class="fas fa-sort"></i></th>
-                                    <th class="sortable-header" onclick="sortTable(this, 2)">Valeur <i class="fas fa-sort"></i></th>
-                                    <th>Unité</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($sensorHistory as $record): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars(date('d/m/Y H:i', strtotime($record['date_heure']))) ?></td>
-                                    <td>
-                                        <i class="fas fa-<?= 
-                                            match($record['nom']) {
-                                                'temperature' => 'thermometer-half',
-                                                'humidite' => 'tint',
-                                                'luminosite' => 'sun',
-                                                'humidite_sol' => 'leaf',
-                                                default => 'question-circle'
-                                            }
-                                        ?>"></i>
-                                        <?= htmlspecialchars(ucfirst($record['nom'])) ?>
-                                    </td>
-                                    <td><?= htmlspecialchars($record['valeur']) ?></td>
-                                    <td><?= htmlspecialchars($record['unite']) ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-        <section id="actuators-section" class="hidden">
-            <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-history"></i>
-                        Historique des Actionneurs
-                    </h2>
-                    <div class="history-container">
-                        <table class="history-table">
-                            <thead>
-                                <tr>
-                                    <th class="sortable-header" onclick="sortTable(this, 0)">Date/Heure <i class="fas fa-sort"></i></th>
-                                    <th class="sortable-header" onclick="sortTable(this, 1)">Actionneur <i class="fas fa-sort"></i></th>
-                                    <th class="sortable-header" onclick="sortTable(this, 2)">État <i class="fas fa-sort"></i></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($actuatorHistory as $record): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars(date('d/m/Y H:i', strtotime($record['date_heure']))) ?></td>
-                                    <td>
-                                        <i class="fas fa-<?= 
-                                            match($record['nom']) {
-                                                'led' => 'lightbulb',
-                                                'moteur' => 'fan',
-                                                default => 'cog'
-                                            }
-                                        ?>"></i>
-                                        <?= htmlspecialchars(ucfirst($record['nom'])) ?>
-                                    </td>
-                                    <td>
-                                        <span class="actuator-status <?= $record['etat'] ? 'status-active' : 'status-inactive' ?>">
-                                            <?= $record['etat'] ? 'Activé' : 'Désactivé' ?>
-                                        </span>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-            <!-- Data Section -->
-            <section id="data-section" class="hidden">
-                <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-database"></i>
-                        Historique des Données
-                    </h2>
-                    <div class="data-table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Date/Heure</th>
-                                    <th>Capteur</th>
-                                    <th>Valeur</th>
-                                    <th>Unité</th>
-                                    <th>Statut</th>
-                                </tr>
-                            </thead>
-                            <tbody id="dataTableBody">
-                                <?php foreach ($historicalData as $data): ?>
-                                <tr>
-                                    <td><?php echo date('d/m/Y H:i', strtotime($data['date_heure'])); ?></td>
-                                    <td>
-                                        <i class="fas fa-<?php 
-                                            switch($data['nom']) {
-                                                case 'temperature': echo 'thermometer-half'; break;
-                                                case 'humidite': echo 'tint'; break;
-                                                case 'luminosite': echo 'sun'; break;
-                                                case 'humidite_sol': echo 'leaf'; break;
-                                                default: echo 'question-circle';
-                                            }
-                                        ?>"></i> 
-                                        <?php echo ucfirst($data['nom']); ?>
-                                    </td>
-                                    <td><?php echo $data['valeur']; ?></td>
-                                    <td><?php echo $data['unite']; ?></td>
-                                    <td>
-                                        <span class="sensor-status">
-                                            <?php 
-                                            $value = $data['valeur'];
-                                            $min = $sensorLimits[$data['nom']]['lim_min'] ?? null;
-                                            $max = $sensorLimits[$data['nom']]['lim_max'] ?? null;
-
-                                            if ($min !== null && $max !== null) {
-                                                if ($value >= $min && $value <= $max) {
-                                                    echo '<i class="fas fa-check-circle"></i> Optimal';
-                                                } elseif ($value < $min * 0.8 || $value > $max * 1.3) {
-                                                    echo '<i class="fas fa-times-circle"></i> Critique';
-                                                } else {
-                                                    echo '<i class="fas fa-exclamation-triangle"></i> Attention';
-                                                }
-                                            } else {
-                                                echo 'N/A';
-                                            }
-                                            ?>
-                                        </span>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Alerts Section -->
-            <section id="alerts-section" class="hidden">
-                <div class="card">
-                    <h2 class="section-title">
-                        <i class="fas fa-bell"></i>
-                        Système d'Alertes
-                    </h2>
-                    <div id="alertsContainer">
-                        <?php
-
-                        foreach ($sensorValues as $sensor => $data) {
-                            $value = $data['valeur'];
-                            $min = $sensorLimits[$sensor]['lim_min'] ?? null;
-                            $max = $sensorLimits[$sensor]['lim_max'] ?? null;
-
-                            if ($min !== null && $max !== null) {
-                                if ($value < $min) {
-                                    echo '<div class="alert alert-warning">
-                                            <i class="fas fa-exclamation-triangle"></i>
-                                            <div>
-                                                <strong>'.ucfirst($sensor).' trop bas</strong><br>
-                                                La valeur ('.$value.$data['unite'].') est en dessous du minimum ('.$min.$data['unite'].').
-                                            </div>
-                                          </div>';
-                                } elseif ($value > $max) {
-                                    echo '<div class="alert alert-warning">
-                                            <i class="fas fa-exclamation-triangle"></i>
-                                            <div>
-                                                <strong>'.ucfirst($sensor).' trop haut</strong><br>
-                                                La valeur ('.$value.$data['unite'].') est au dessus du maximum ('.$max.$data['unite'].').
-                                            </div>
-                                          </div>';
-                                }
-                            }
-                        }
-
-                        foreach ($actuatorStatus as $actuator => $data) {
-                            if ($data['etat'] == 1) {
-                                echo '<div class="alert alert-success">
-                                        <i class="fas fa-check-circle"></i>
-                                        <div>
-                                            <strong>'.ucfirst($actuator).' activé</strong><br>
-                                            L\'actionneur est actuellement en marche depuis '.date('d/m/Y H:i', strtotime($data['date_heure'])).'.
-                                        </div>
-                                      </div>';
-                            }
-                        }
-                        ?>
-                    </div>
-                </div>
-            </section>
-        </main>
+    <!-- Bloc lecture série direct -->
+    <div id="mesureSerie">
+      <span style="font-weight:700;">Lecture série en direct&nbsp;:</span>
+      <pre id="resultatSerie"></pre>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script>
-
-        function showSection(sectionName) {
-
-            document.querySelectorAll('main > section').forEach(section => {
-                section.classList.add('hidden');
-            });
-
-            document.getElementById(sectionName + '-section').classList.remove('hidden');
-
-            document.querySelectorAll('.nav-links a').forEach(link => {
-                link.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
-
-        function toggleActuator(element, actuatorType) {
-            element.classList.toggle('active');
-            const isActive = element.classList.contains('active');
-
-            updateActuator(actuatorType, isActive ? 1 : 0);
-        }
-
-        function updateActuator(actuatorType, status) {
-            fetch('../model/update_actuator.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    actuator: actuatorType,
-                    status: status
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showAlert(`${actuatorType} ${status ? 'activé' : 'désactivé'} avec succès`, 'success');
-                } else {
-                    showAlert(`Erreur lors de la mise à jour de ${actuatorType}`, 'danger');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showAlert('Erreur de connexion au serveur', 'danger');
-            });
-        }
-
-        function showAlert(message, type) {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert alert-${type}`;
-            alertDiv.innerHTML = `
-                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : 'times-circle'}"></i>
-                <div>${message}</div>
-            `;
-
-            document.body.appendChild(alertDiv);
-
-            setTimeout(() => {
-                alertDiv.remove();
-            }, 3000);
-        }
-
-        function initChart() {
-            const ctx = document.getElementById('sensorsChart');
-            if (!ctx) return;
-
-            window.sensorsChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    datasets: [
-                        {
-                            label: 'Température (°C)',
-                            data: [
-                                <?php foreach ($chartValues['temperature'] as $point): ?>
-                                { x: new Date('<?php echo $point['x']; ?>'), y: <?php echo $point['y']; ?> },
-                                <?php endforeach; ?>
-                            ],
-                            borderColor: '#e74c3c',
-                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Humidité (%)',
-                            data: [
-                                <?php foreach ($chartValues['humidite'] as $point): ?>
-                                { x: new Date('<?php echo $point['x']; ?>'), y: <?php echo $point['y']; ?> },
-                                <?php endforeach; ?>
-                            ],
-                            borderColor: '#3498db',
-                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Luminosité (%)',
-                            data: [
-                                <?php foreach ($chartValues['luminosite'] as $point): ?>
-                                { x: new Date('<?php echo $point['x']; ?>'), y: <?php echo $point['y']; ?> },
-                                <?php endforeach; ?>
-                            ],
-                            borderColor: '#f39c12',
-                            backgroundColor: 'rgba(243, 156, 18, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: 'Humidité Sol (%)',
-                            data: [
-                                <?php foreach ($chartValues['humidite_sol'] as $point): ?>
-                                { x: new Date('<?php echo $point['x']; ?>'), y: <?php echo $point['y']; ?> },
-                                <?php endforeach; ?>
-                            ],
-                            borderColor: '#27ae60',
-                            backgroundColor: 'rgba(39, 174, 96, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y'
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'hour',
-                                displayFormats: {
-                                    hour: 'HH:mm'
-                                }
-                            },
-                            title: {
-                                display: true,
-                                text: 'Heure'
-                            }
-                        },
-                        y: {
-                            type: 'linear',
-                            display: true,
-                            position: 'left',
-                            title: {
-                                display: true,
-                                text: 'Valeur'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.dataset.label + ': ' + context.parsed.y + 
-                                           (context.dataset.label.includes('Temp') ? '°C' : '%');
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function refreshData() {
-            fetch('get_latest_data.php')
-                .then(response => response.json())
-                .then(data => {
-
-                    if (data.temperature) {
-                        document.getElementById('temp-value').textContent = data.temperature.value + '°C';
-                        updateSensorStatus('temp', data.temperature.value, 
-                            <?php echo $sensorLimits['temperature']['lim_min'] ?? 0; ?>, 
-                            <?php echo $sensorLimits['temperature']['lim_max'] ?? 100; ?>);
-                    }
-                    if (data.humidite) {
-                        document.getElementById('humidity-value').textContent = data.humidite.value + '%';
-                        updateSensorStatus('humidity', data.humidite.value, 
-                            <?php echo $sensorLimits['humidite']['lim_min'] ?? 0; ?>, 
-                            <?php echo $sensorLimits['humidite']['lim_max'] ?? 100; ?>);
-                    }
-                    if (data.luminosite) {
-                        document.getElementById('light-value').textContent = data.luminosite.value + '%';
-                        updateSensorStatus('light', data.luminosite.value, 
-                            <?php echo $sensorLimits['luminosite']['lim_min'] ?? 0; ?>, 
-                            <?php echo $sensorLimits['luminosite']['lim_max'] ?? 100; ?>);
-                    }
-                    if (data.humidite_sol) {
-                        document.getElementById('soil-value').textContent = data.humidite_sol.value + '%';
-                        updateSensorStatus('soil', data.humidite_sol.value, 
-                            <?php echo $sensorLimits['humidite_sol']['lim_min'] ?? 0; ?>, 
-                            <?php echo $sensorLimits['humidite_sol']['lim_max'] ?? 100; ?>);
-                    }
-
-                    if (data.led !== undefined) {
-                        const ledSwitch = document.querySelector('.toggle-switch[onclick*="led"]');
-                        if (ledSwitch) {
-                            data.led ? ledSwitch.classList.add('active') : ledSwitch.classList.remove('active');
-                        }
-                    }
-                    if (data.moteur !== undefined) {
-                        const motorSwitch = document.querySelector('.toggle-switch[onclick*="moteur"]');
-                        if (motorSwitch) {
-                            data.moteur ? motorSwitch.classList.add('active') : motorSwitch.classList.remove('active');
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching data:', error);
-                });
-        }
-
-        function updateSensorStatus(sensor, value, minOptimal, maxOptimal) {
-            const statusElement = document.getElementById(sensor + '-status');
-
-            let status, statusClass, icon;
-
-            if (value >= minOptimal && value <= maxOptimal) {
-                status = 'Optimal';
-                statusClass = 'status-optimal';
-                icon = 'check-circle';
-            } else if (value < minOptimal * 0.8 || value > maxOptimal * 1.3) {
-                status = 'Critique';
-                statusClass = 'status-critical';
-                icon = 'times-circle';
+    <div class="btns-bar">
+      <div class="btns-main">
+        <button id="pauseBtn" aria-pressed="false">⏸️ Pause</button>
+        <button id="refreshBtn">🔄 Rafraîchir</button>
+        <button id="exportBtn">⬇️ Exporter</button>
+      </div>
+      <div class="btns-options">
+        <button id="themeBtn">🌓 Thème sombre</button>
+        <button id="fsBtn">⛶ Plein écran</button>
+        <button id="compactBtn">🗕 Mode compact</button>
+        <button id="helpBtn">❓ Aide</button>
+        <span>
+          <label for="nbSelect">Historique</label>
+          <select id="nbSelect">
+            <option value="20">20</option>
+            <option value="40">40</option>
+            <option value="80">80</option>
+          </select>
+        </span>
+      </div>
+    </div>
+    <canvas id="graphique" width="1600" height="340"></canvas>
+    <div class="statistiques" id="statistiques"></div>
+    <table id="recapTable" class="recap-table">
+      <thead>
+        <tr><th>#</th><th>Valeur</th><th>Horodatage</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="footer">Capteur connecté · Données live · Zoom/plein écran · Export · Mode compact</div>
+    <div id="notif" class="notif" role="alert"></div>
+    <div id="helpModal" class="help-modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle" style="display:none;">
+      <div class="modal-content">
+        <span class="close-modal" id="closeHelp" tabindex="0" role="button" aria-label="Fermer">✖</span>
+        <h2 id="helpTitle">Aide & Raccourcis</h2>
+        <ul style="text-align:left;max-width:430px;margin:0 auto;">
+          <li><b>Pause/Reprendre :</b> "⏸️"/"▶️" ou barre espace</li>
+          <li><b>Rafraîchir :</b> "🔄" ou touche R</li>
+          <li><b>Export :</b> "⬇️" ou touche E</li>
+          <li><b>Plein écran :</b> "⛶" ou touche F</li>
+          <li><b>Thème Sombre/Clair :</b> "🌓" ou touche T</li>
+          <li><b>Mode compact :</b> "🗕" ou touche C</li>
+          <li><b>Aide & raccourcis :</b> "❓" ou touche H, ? ou F1</li>
+          <li><b>Zoom/Pan graphique :</b> Molette + ctrl · Double click pour reset</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <!-- SCRIPTS -->
+  <script>
+    // Bloc lecture série direct
+    function lireSerie() {
+      fetch('get_valeur.php?' + Date.now())
+        .then(r => r.json())
+        .then(data => {
+          if (data.ligne) {
+            const m = data.ligne.match(/^Brute:\s*(\d+).*Tension:\s*([0-9.]+)\s*V.*Distance:\s*([^\s]+.*)$/);
+            if (m) {
+              document.getElementById('resultatSerie').innerHTML =
+                `<span style="color:#007acc;">Brute :</span> <b>${m[1]}</b> &nbsp; `
+                + `<span style="color:#00905c;">Tension :</span> <b>${m[2]} V</b> &nbsp; `
+                + `<span style="color:#cb3f00;">Distance :</span> <b>${m[3]}</b>`;
             } else {
-                status = 'Attention';
-                statusClass = 'status-warning';
-                icon = 'exclamation-triangle';
+              document.getElementById('resultatSerie').textContent = data.ligne;
             }
-
-            statusElement.className = `sensor-status ${statusClass}`;
-            statusElement.innerHTML = `<i class="fas fa-${icon}"></i> ${status}`;
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            initChart();
-
-            updateSensorStatus('temp', <?php echo $sensorValues['temperature']['valeur'] ?? 0; ?>, 
-                <?php echo $sensorLimits['temperature']['lim_min'] ?? 0; ?>, 
-                <?php echo $sensorLimits['temperature']['lim_max'] ?? 100; ?>);
-
-            updateSensorStatus('humidity', <?php echo $sensorValues['humidite']['valeur'] ?? 0; ?>, 
-                <?php echo $sensorLimits['humidite']['lim_min'] ?? 0; ?>, 
-                <?php echo $sensorLimits['humidite']['lim_max'] ?? 100; ?>);
-
-            updateSensorStatus('light', <?php echo $sensorValues['luminosite']['valeur'] ?? 0; ?>, 
-                <?php echo $sensorLimits['luminosite']['lim_min'] ?? 0; ?>, 
-                <?php echo $sensorLimits['luminosite']['lim_max'] ?? 100; ?>);
-
-            updateSensorStatus('soil', <?php echo $sensorValues['humidite_sol']['valeur'] ?? 0; ?>, 
-                <?php echo $sensorLimits['humidite_sol']['lim_min'] ?? 0; ?>, 
-                <?php echo $sensorLimits['humidite_sol']['lim_max'] ?? 100; ?>);
-
-            setInterval(refreshData, 10000);
+          } else {
+            document.getElementById('resultatSerie').textContent = "—";
+          }
+        })
+        .catch(() => {
+          document.getElementById('resultatSerie').textContent = "Erreur de lecture";
         });
-    </script>
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+      lireSerie();
+      setInterval(lireSerie, 1000);
+    });
+  </script>
+  <script>
+    // Variables et gestion dashboard JS
+    document.addEventListener('DOMContentLoaded', function() {
+      let nbLignes = 20, paused = false, lastConnected = true;
+      let valeurs = Array(nbLignes).fill(null);
+      let temps = Array(nbLignes).fill("");
+      let labels = Array(nbLignes).fill("");
+      const seuilAlert = 950, seuilWarn = 800;
+
+      function updateTable(){
+        const tbody = document.getElementById('recapTable').querySelector('tbody');
+        tbody.innerHTML = '';
+        for(let i=valeurs.length-1; i>=0; i--){
+          if(valeurs[i]===null) continue;
+          const row = document.createElement('tr');
+          if(valeurs[i]>=seuilAlert) row.classList.add("alert");
+          row.innerHTML = `<td>${valeurs.length-i}</td><td>${valeurs[i]}</td><td>${temps[i]}</td>`;
+          tbody.appendChild(row);
+        }
+        updateStats();
+      }
+      function updateStats(){
+        let vals = valeurs.filter(v=>v!==null&&!isNaN(v));
+        if(!vals.length) {
+          document.getElementById('statistiques').innerHTML = '';
+          return;
+        }
+        let min = Math.min(...vals), max = Math.max(...vals);
+        let sum = vals.reduce((a,b)=>a+b,0), mean = (sum/vals.length).toFixed(2);
+        let std = Math.sqrt(vals.reduce((s,v)=>s+Math.pow(v-mean,2),0)/vals.length).toFixed(2);
+        document.getElementById('statistiques').innerHTML =
+          `<span class="stat-item">🔻 Min: <b>${min}</b></span>
+           <span class="stat-item">🔺 Max: <b>${max}</b></span>
+           <span class="stat-item">⌀ Moy: <b>${mean}</b></span>
+           <span class="stat-item">σ: <b>${std}</b></span>`;
+      }
+      function setStatus(online){
+        lastConnected = online;
+        let ind=document.getElementById('statusInd'),lib=document.getElementById('etatLib');
+        ind.className='status-ind '+(online?"ok":"nok");
+        lib.textContent=online?"Capteur connecté":"Déconnecté";
+        lib.style.color=online?"#19a953":"#e23e2d";
+      }
+      function setLiveValue(val){
+        let v=document.getElementById('valAffichée');
+        v.classList.remove("alert",'warn');
+        if(val===null) v.textContent='—';
+        else {
+          v.textContent=val;
+          if(val>=seuilAlert) v.classList.add("alert");
+          else if(val>=seuilWarn) v.classList.add("warn");
+        }
+      }
+      // Chart.js
+      let ctx=document.getElementById('graphique').getContext('2d'), chart;
+      function makeChart(){
+        chart=new Chart(ctx,{
+          type:'line',
+          data:{labels:labels,
+            datasets:[{
+              label:'Historique',
+              data:valeurs,
+              borderColor:'#1ea7e1',
+              backgroundColor:'rgba(30,167,225,0.13)',
+              fill:true,tension:0.35,pointRadius:4,pointBackgroundColor:'#fff',pointBorderColor:'#1ea7e1'
+            }]
+          },
+          options:{
+            animation:false,plugins:{
+              legend:{display:false},
+              zoom:{
+                pan:{enabled:true,mode:'x',modifierKey:'ctrl'}, zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'}
+              }
+            },
+            scales:{x:{grid:{color:'#d7e5f7'},ticks:{display:false}},
+              y:{beginAtZero:true,max:1023,grid:{color:'#d7e5f7'},ticks:{color:'#64a3ce'}}}
+          }
+        });
+      }
+      makeChart();
+
+      async function pollCapteur(forceManual){
+        if(paused) return;
+        try{
+          const response=await fetch('get_valeur.php?t='+Date.now());
+          if(!response.ok) throw new Error('fetch failed');
+          const data=await response.json();
+          const val=(data&&typeof data.valeur!=='undefined')?Number(data.valeur):null;
+          const now=new Date().toLocaleTimeString();
+
+          setStatus(true);
+          setLiveValue(val);
+
+          labels.push("");labels.shift();
+          valeurs.push((val!==null&&!isNaN(val))?val:null); valeurs.shift();
+          temps.push((val!==null&&!isNaN(val))?now:""); temps.shift();
+
+          chart.data.labels=labels;
+          chart.data.datasets[0].data=valeurs;
+          chart.update();
+          updateTable();
+
+          if(val!==null && val>=seuilAlert){
+            // Notif sonore (désactivé ici)
+          }
+        }catch(e){
+          setStatus(false);setLiveValue(null);
+        }
+        if(!forceManual&&!paused)setTimeout(pollCapteur,1100);
+      }
+
+      document.getElementById('refreshBtn').addEventListener('click',()=>{pollCapteur(true);});
+      document.getElementById('pauseBtn').addEventListener('click',function(){
+        paused=!paused;this.setAttribute('aria-pressed',paused?'true':'false');
+        this.textContent=paused?"▶️ Reprendre":"⏸️ Pause";
+        if(!paused) pollCapteur(); setStatus(lastConnected);
+      });
+      document.getElementById('exportBtn').addEventListener('click',function(){
+        let rows=[["#", "Valeur", "Horodatage"]];
+        for(let i=valeurs.length-1;i>=0;i--)if(valeurs[i]!==null)rows.push([valeurs.length-i,valeurs[i],temps[i]]);
+        let csv=rows.map(e=>e.map(t=>`"${(""+t).replaceAll('"','""')}"`).join(",")).join("\r\n");
+        const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);a.download='mesures_capteur.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);
+      });
+      document.getElementById('nbSelect').addEventListener('change',function(){
+        nbLignes=parseInt(this.value,10);
+        valeurs=Array(nbLignes).fill(null);temps=Array(nbLignes).fill("");labels=Array(nbLignes).fill("");
+        chart.destroy();makeChart();pollCapteur(true);
+      });
+      document.getElementById('fsBtn').addEventListener('click',function(){
+        let elem=document.querySelector('.dashboard');
+        if(!document.fullscreenElement) elem.requestFullscreen();
+        else document.exitFullscreen();
+      });
+      pollCapteur();
+      setInterval(()=>{if(!lastConnected){setStatus(false);setLiveValue(null);}},3100);
+
+      // Help modal
+      document.getElementById('helpBtn').addEventListener('click',function(){
+        document.getElementById('helpModal').style.display="block";
+      });
+      document.getElementById('closeHelp').addEventListener('click',function(){
+        document.getElementById('helpModal').style.display="none";
+      });
+      document.getElementById('closeHelp').addEventListener('keyup',function(e){if(e.key==="Enter"||e.key===" "){this.click();}});
+      document.getElementById('compactBtn').addEventListener('click',function(){
+        document.body.classList.toggle('compact');
+      });
+      document.getElementById('themeBtn').addEventListener('click',function(){
+        document.body.classList.toggle('dark');
+        this.textContent=document.body.classList.contains('dark')?'☀️ Thème clair':'🌓 Thème sombre';
+      });
+
+      // Raccourcis clavier global
+      document.addEventListener('keydown',function(e){
+        if(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='SELECT')return;
+        if(e.key===' '||e.key==='Spacebar'){e.preventDefault();document.getElementById('pauseBtn').click();}
+        if(e.key==='r'||e.key==='R'){document.getElementById('refreshBtn').click();}
+        if(e.key==='e'||e.key==='E'){document.getElementById('exportBtn').click();}
+        if(e.key==='t'||e.key==='T'){document.getElementById('themeBtn').click();}
+        if(e.key==='f'||e.key==='F'){document.getElementById('fsBtn').click();}
+        if(e.key==='c'||e.key==='C'){document.getElementById('compactBtn').click();}
+        if(e.key==='h'||e.key==='H'||e.key==='?'||e.key==='F1'){e.preventDefault();document.getElementById('helpBtn').click();}
+      });
+    });
+  </script>
 </body>
 </html>
